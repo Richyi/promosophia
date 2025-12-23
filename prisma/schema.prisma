@@ -1,0 +1,393 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  domain    String?  @unique
+  industry  String
+  size      String   // "Small", "Medium", "Large", "Enterprise"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  users             User[]
+  products          Product[]
+  productCategories ProductCategory[]
+  retailers         Retailer[]
+  promotions        TradePromotion[]
+  deductions        Deduction[]
+  claims            Claim[]
+  companyGoals      CompanyGoal[]
+  posData           POSData[]
+  accountingData    AccountingData[]
+  scenarios         Scenario[]
+  calendarEvents    CalendarEvent[]
+  settings TenantSettings @relation(fields: [id], references: [tenantId])
+
+  @@map("tenants")
+}
+
+model TenantSettings {
+  tenantId        String @id
+  currency        String @default("USD")
+  fiscalYearStart Int    @default(0) // Month 0-11 (January = 0)
+  defaultMargin   Float  @default(0.35)
+  timezone        String @default("America/New_York")
+
+  tenant Tenant?
+
+  @@map("tenant_settings")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  role      UserRole
+  tenantId  String
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdPromotions TradePromotion[]  @relation("PromotionCreator")
+  approvedPromotions TradePromotion[] @relation("PromotionApprover")
+  resolvedDeductions Deduction[]      @relation("DeductionResolver")
+  createdScenarios   Scenario[]       @relation("ScenarioCreator")
+  assignedEvents     CalendarEvent[]  @relation("EventAssignee")
+  historyEntries     PromotionHistory[]
+
+  @@map("users")
+}
+
+model ProductCategory {
+  id        String  @id @default(cuid())
+  tenantId  String
+  name      String
+  parentId  String?
+  isActive  Boolean @default(true)
+
+  // Relations
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products   Product[]
+  subcategories ProductCategory[] @relation("CategoryHierarchy")
+
+  parent ProductCategory? @relation("CategoryHierarchy", fields: [parentId], references: [id])
+
+  @@map("product_categories")
+}
+
+model Product {
+  id          String  @id @default(cuid())
+  tenantId    String
+  name        String
+  sku         String  @unique
+  categoryId  String
+  subcategory String?
+  basePrice   Float
+  cost        Float
+  margin      Float
+  unit        String  @default("units")
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category   ProductCategory  @relation(fields: [categoryId], references: [id])
+  promotions TradePromotion[] @relation("PromotionProducts")
+  posData    POSData[]
+
+  @@map("products")
+}
+
+model Retailer {
+  id            String  @id @default(cuid())
+  tenantId      String
+  name          String
+  code          String  @unique
+  region        String
+  channel       String
+  tier          String  // "A", "B", "C"
+  contactEmail  String?
+  contactPhone  String?
+  isActive      Boolean @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  tenant          Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  promotions      TradePromotion[]
+  deductions      Deduction[]
+  posData         POSData[]
+  accountingData  AccountingData[]
+  calendarEvents  CalendarEvent[]
+
+  address Address?
+
+  @@map("retailers")
+}
+
+model Address {
+  id       String  @id @default(cuid())
+  retailerId String @unique
+  street   String
+  city     String
+  state    String
+  zipCode  String
+  country  String
+
+  retailer Retailer @relation(fields: [retailerId], references: [id], onDelete: Cascade)
+
+  @@map("addresses")
+}
+
+model TradePromotion {
+  id             String           @id @default(cuid())
+  tenantId       String
+  name           String
+  description    String?
+  status         PromotionStatus
+  retailerId     String
+  startDate      DateTime
+  endDate        DateTime
+  mechanic       Json // PromotionMechanic
+  discountDepth  Float
+  plannedSpend   Float
+  actualSpend    Float?
+  plannedVolume  Float
+  actualVolume   Float?
+  plannedRevenue Float
+  actualRevenue  Float?
+  plannedMargin  Float
+  actualMargin   Float?
+  roi            Float?
+  liftPercent    Float?
+  createdBy      String
+  approvedBy     String?
+  approvedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  // Relations
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  retailer    Retailer           @relation(fields: [retailerId], references: [id])
+  creator     User               @relation("PromotionCreator", fields: [createdBy], references: [id])
+  approver    User?              @relation("PromotionApprover", fields: [approvedBy], references: [id])
+  products    Product[]          @relation("PromotionProducts")
+  deductions  Deduction[]
+  claims      Claim[]
+  history     PromotionHistory[]
+  calendarEvents CalendarEvent[]
+  posData     POSData[]
+
+  @@map("trade_promotions")
+}
+
+model PromotionHistory {
+  id           String   @id @default(cuid())
+  promotionId  String
+  action       String
+  oldValues    Json?
+  newValues    Json?
+  userId       String
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  // Relations
+  promotion TradePromotion @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id])
+
+  @@map("promotion_history")
+}
+
+model Deduction {
+  id            String          @id @default(cuid())
+  tenantId      String
+  retailerId    String
+  promotionId   String?
+  amount        Float
+  status        DeductionStatus
+  type          String
+  reason        String
+  invoiceNumber String?
+  date          DateTime
+  dueDate       DateTime?
+  resolvedAt    DateTime?
+  resolvedBy    String?
+  notes         String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  // Relations
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  retailer   Retailer         @relation(fields: [retailerId], references: [id])
+  promotion  TradePromotion?  @relation(fields: [promotionId], references: [id])
+  resolver   User?            @relation("DeductionResolver", fields: [resolvedBy], references: [id])
+  claims     Claim[]
+
+  @@map("deductions")
+}
+
+model Claim {
+  id          String   @id @default(cuid())
+  tenantId    String
+  deductionId String
+  promotionId String?
+  amount      Float
+  status      String   // "Submitted", "Approved", "Rejected", "Paid"
+  submittedAt DateTime
+  approvedAt  DateTime?
+  paidAt      DateTime?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deduction  Deduction        @relation(fields: [deductionId], references: [id])
+  promotion  TradePromotion?  @relation(fields: [promotionId], references: [id])
+
+  @@map("claims")
+}
+
+model CompanyGoal {
+  id        String   @id @default(cuid())
+  tenantId  String
+  type      String   // "Revenue", "Volume", "Margin"
+  target    Float
+  current   Float
+  period    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("company_goals")
+}
+
+model POSData {
+  id              String   @id @default(cuid())
+  tenantId        String
+  retailerId      String
+  productId       String
+  date            DateTime
+  baselineSales   Float
+  promotedSales   Float
+  baselineRevenue Float
+  promotedRevenue Float
+  units           Float
+  price           Float
+  isPromotion     Boolean
+  promotionId     String?
+  createdAt       DateTime @default(now())
+
+  // Relations
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  retailer  Retailer         @relation(fields: [retailerId], references: [id])
+  product   Product          @relation(fields: [productId], references: [id])
+  promotion TradePromotion?  @relation(fields: [promotionId], references: [id])
+
+  @@unique([tenantId, retailerId, productId, date])
+  @@map("pos_data")
+}
+
+model AccountingData {
+  id          String   @id @default(cuid())
+  tenantId    String
+  retailerId  String
+  date        DateTime
+  accountType String
+  accountCode String
+  amount      Float
+  description String?
+  reference   String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  retailer Retailer @relation(fields: [retailerId], references: [id])
+
+  @@map("accounting_data")
+}
+
+model Scenario {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  goal        String   // OptimizationGoal enum
+  budget      Float
+  constraints Json     // ScenarioConstraints
+  results     Json     // ScenarioResult
+  isActive    Boolean  @default(false)
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  creator User @relation("ScenarioCreator", fields: [createdBy], references: [id])
+
+  @@map("scenarios")
+}
+
+model CalendarEvent {
+  id          String   @id @default(cuid())
+  tenantId    String
+  title       String
+  type        String   // "Promotion", "RetailExecution", "Meeting", "Deadline"
+  startDate   DateTime
+  endDate     DateTime
+  retailerId  String?
+  promotionId String?
+  description String?
+  status      String   // "Planned", "InProgress", "Completed"
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  retailer   Retailer?         @relation(fields: [retailerId], references: [id])
+  promotion  TradePromotion?   @relation(fields: [promotionId], references: [id])
+  assignedTo User[]            @relation("EventAssignee")
+
+  @@map("calendar_events")
+}
+
+// Enums
+enum UserRole {
+  SUPER_ADMIN
+  TENANT_ADMIN
+  EXECUTIVE
+  REVENUE_MANAGER
+  ACCOUNT_MANAGER
+  FINANCE
+  ANALYST
+}
+
+enum PromotionStatus {
+  DRAFT
+  PLANNED
+  APPROVED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  ARCHIVED
+}
+
+enum DeductionStatus {
+  OPEN
+  PENDING
+  CLEARED
+  CONTESTED
+}
