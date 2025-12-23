@@ -36,7 +36,7 @@ The name "Promosophia" combines "Promo," a shortened form of "promotion," with "
 
 ```bash
 git clone <repository-url>
-cd rts-tpm
+cd promosophia
 npm install
 ```
 
@@ -44,7 +44,7 @@ npm install
 
 ```bash
 # Set up PostgreSQL database
-createdb rts-tpm
+createdb promosophia
 
 # Generate Prisma client and push schema
 npm run db:generate
@@ -60,7 +60,7 @@ Create a `.env.local` file in the root directory:
 
 ```bash
 # Database
-DATABASE_URL="postgresql://username:password@localhost:5432/rts-tpm"
+DATABASE_URL="postgresql://username:password@localhost:5432/promosophia"
 
 # StackAuth (get these from https://stack-auth.com)
 STACK_PROJECT_ID=your-project-uuid-here
