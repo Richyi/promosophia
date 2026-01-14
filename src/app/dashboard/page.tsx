@@ -5,7 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/components/auth-provider'
-import { TrendingUp, TrendingDown, Target, DollarSign, ShoppingCart, AlertTriangle } from 'lucide-react'
+import { TrendingUp, TrendingDown, Target, DollarSign, ShoppingCart, AlertTriangle, ReceiptText, Landmark, ChartPie, SquareStack} from 'lucide-react'
 
 // Mock data - in real app this would come from API
 const kpis = [
@@ -40,6 +40,42 @@ const kpis = [
     trendUp: true,
     color: 'text-rose-400',
     icon: AlertTriangle
+  }
+]
+
+const companyFinancials = [
+  {
+    label: 'Revenue',
+    value: '$100.0k',
+    trend: '-4.4%',
+    trendUp: false,
+    color: 'text-blue-400',
+    icon: Landmark
+  },
+  {
+    label: 'Costs',
+    value: '$50.0k',
+    trend: '1.4%',
+    trendUp: true,
+    color: 'text-blue-400',
+    icon: ReceiptText
+  },
+  {
+    label: 'Margin',
+    value: '$50.0k',
+    trend: '+12%',
+    trendUp: false,
+    color: 'text-emerald-400',
+    icon: ChartPie,
+    label2: '50.0%'
+  },
+  {
+    label: 'Inventory Sold',
+    value: '43.2k',
+    trend: '+5.3%',
+    trendUp: true,
+    color: 'text-amber-400',
+    icon: SquareStack
   }
 ]
 
@@ -87,6 +123,37 @@ export default function DashboardPage() {
         <p className="text-slate-300">
           Your trade promotion performance is looking strong. Here are the key metrics for your portfolio.
         </p>
+      </div>
+
+      {/* Company Financials Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {companyFinancials.map((companyKpi, i) => {
+          const Icon = companyKpi.icon
+          return (
+            <Card key={i} className="bg-slate-800/50 border-slate-700">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <Icon className="h-5 w-5 text-slate-400" />
+                  <div className="flex items-center gap-1 text-xs font-bold">
+                    {companyKpi.trendUp ? (
+                      <TrendingUp className="h-3 w-3 text-emerald-400" />
+                    ) : (
+                      <TrendingDown className="h-3 w-3 text-red-400" />
+                    )}
+                    <span className={companyKpi.color}>{companyKpi.trend}</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-slate-400 mb-2">{companyKpi.label}</p>
+                  <div className="flex items-end justify-between">
+                    <h3 className="text-2xl font-bold text-white tracking-tight">{companyKpi.value}</h3>
+                  </div>
+                  <p className="text-xs text-slate-500">{companyKpi.label2}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )
+        })}
       </div>
 
       {/* KPI Grid */}
