@@ -21,6 +21,12 @@ Information regarding integrations, workflows, architecture design.
     - [B. Postgres Optimization](#b-postgres-optimization)
     - [C. Backend (Python/FastAPI or Django)](#c-backend-pythonfastapi-or-django)
     - [D. Frontend (Next.js/React)](#d-frontend-nextjsreact)
+- [Detailed Resolution Scenarios & Logic](#detailed-resolution-scenarios--logic)
+  - [Scenario A: The "Deduction Variance" (Retailer over-claims)](#scenario-a-the-deduction-variance-retailer-over-claims)
+  - [Scenario B: The "Timing Gap" (Accrual Release)](#scenario-b-the-timing-gap-accrual-release)
+  - [Scenario C: The "Fixed Fee" (Slotting Reconciliation)](#scenario-c-the-fixed-fee-slotting-reconciliation)
+  - [Scenario D: The "Forward Buy" (Revenue Variance)](#scenario-d-the-forward-buy-revenue-variance)
+  - [Implementing this in Python/Postgres](#implementing-this-in-pythonpostgres)
 
 ## Accounting System (G/L)
 
@@ -188,14 +194,18 @@ Here are the critical tables. *Note: Every table has `tenant_id` (UUID) as the f
 
 #### C. Finance (Reconciliation Engine)
 
-**6. `finance.claims**` (Deductions from ERP)
+**6. `finance.gl_transactions**` (GL Transactions from ERP)
 
 * **id (UUID):** PK.
-* **erp_deduction_id (VARCHAR):** Unique deduction ID in ERP.
-* **amount (NUMERIC 19,4):** Total deducted amount.
+* **source_type (ENUM):** 'INVOICE', 'DEDUCTION', 'JOURNAL_ENTRY'.
+* **erp_ref_id (VARCHAR):** The Invoice #, Check #, or JE # from ERP.
+* **gl_account_code (VARCHAR):** The specific account (e.g., 5500-Rebates, 5510-Slotting).
+* **amount (NUMERIC 19,4):** Total currency value of line item.
+* **posting_date (DATE):** When the transaction hit the G/L.
 * **open_balance (NUMERIC 19,4):** Amount not yet reconciled.
 * **reason_code_erp (VARCHAR):** Original code (e.g., "005").
-* **reason_code_normalized (VARCHAR):** Mapped code (e.g., "SHORTAGE").
+* **reason_code_normalized (VARCHAR):** Mapped code (e.g., "PROMO", "SHORTAGE", "TAX", "SPOILS").
+* **dispute_status (ENUM):** 'OPEN', 'DISPUTED', 'RECOVERED', 'WRITEOFF'.
 * **backup_doc_url (TEXT):** Link to scanned PDF (S3/Blob Storage).
 
 **7. `finance.settlements**` (The Promo-Deduction Link)
@@ -335,3 +345,72 @@ Do not mix raw data with the transactional model.
 
 * Since financial data is heavy, use **React Query** or **SWR** for caching.
 * For the "Deduction Grid" (which looks like Excel), use high-performance libraries like **Ag-Grid** or **TanStack Table**, as users will load thousands of claim rows.
+
+## Detailed Resolution Scenarios & Logic
+
+Here is how your Python backend should handle the "Truth Mismatch" between the G/L and the TPM.
+Scenario A: The "Deduction Variance" (Retailer over-claims)
+
+    The Situation: You planned a $10,000 "Scan-Down" promo. The retailer (Walmart) deducts $12,000 from their invoice. The G/L reflects a $12,000 hit to revenue.
+
+    The Resolution Logic:
+
+        Ingest: Pull the $12,000 deduction from the ERP AR Feed.
+
+        Match: Locate the Promotion ID associated with that date/customer.
+
+        Detect Variance: The TPM sees that the $2,000 excess exceeds the "Tolerance Threshold" (e.g., 2%).
+
+        Action: The TPM marks $10,000 as "Settled" (reverses the accrual) and moves $2,000 into a DISPUTE status.
+
+        G/L Signal: Send a signal to the ERP to create a "Debit Memo" for $2,000, putting that amount back into Accounts Receivable (the retailer now owes you this money).
+
+Scenario B: The "Timing Gap" (Accrual Release)
+
+    The Situation: A promotion ends. You accrued $50,000. Total deductions received only equal $45,000. The G/L still shows a $5,000 liability sitting on the balance sheet.
+
+    The Resolution Logic:
+
+        Close Out: User marks the promotion as "Closed" in the TPM.
+
+        Calculate Residual: TPM identifies the $5,000 unused accrual.
+
+        Action: Trigger an "Accrual Release" (or "Sweep").
+
+        G/L Signal: TPM sends a Journal Entry to the G/L: Debit Accrual Liability $5,000 / Credit Trade Expense $5,000. This immediately improves the company's "Net Margin" for the period.
+
+Scenario C: The "Fixed Fee" (Slotting Reconciliation)
+
+    The Situation: You pay Kroger $20,000 for a "New Store Opening" fee. This is paid via a check (Accounts Payable) in the G/L, not a deduction.
+
+    The Resolution Logic:
+
+        Ingest: TPM monitors the G/L for specific Account Codes + Customer IDs.
+
+        Action: It finds the $20,000 AP Voucher.
+
+        Link: It matches the payment to the "Fixed Fee" tactic inside the TPM Account Plan.
+
+        Verification: TPM confirms that the "Proof of Performance" (e.g., a photo of the new shelf set) has been uploaded. If not, it flags the payment for audit.
+
+Scenario D: The "Forward Buy" (Revenue Variance)
+
+    The Situation: G/L shows a massive spike in revenue in March. POS data in the TPM shows consumer sales are flat.
+
+    The Resolution Logic:
+
+        Compare: TPM compares intelligence.shipment_facts (ERP) vs. intelligence.pos_facts (Retailer).
+
+        Detect: Shipments > POS.
+
+        Insight: The TPM alerts the Sales Manager: "Retailer is 'Loading the Pantry'. Your next 2 months of revenue will likely drop. Do not plan new promos until POS catches up."
+
+        Financial Impact: TPM calculates "Days of Supply" on hand at the retailer to adjust future trade spend accruals.
+
+3. Implementing this in Python/Postgres
+
+To make this performant:
+
+    Use views for real-time margin: Create a Postgres View that joins master.products (COGS) with intelligence.shipment_facts (Revenue) and finance.accrual_ledger (Costs). This gives your React frontend a "Real-Time Margin" without heavy API processing.
+
+    Audit Trail: For every change in finance.settlements, store a JSON snapshot of the G/L state at that moment. This is vital for the year-end "Trade Audit" that every CPG company undergoes.
